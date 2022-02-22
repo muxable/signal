@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+option go_package = "github.com/muxable/signal/api";
+
+package api;
+
+message Signal {
+  oneof payload {
+    string offer_sdp = 1;
+    string answer_sdp = 2;
+    string trickle = 3;
+  }
+}
