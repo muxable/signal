@@ -14,6 +14,28 @@ type Signaller struct {
 	readCh chan *api.Signal
 }
 
+func NewSignaller(pc *webrtc.PeerConnection) *Signaller {
+	s := &Signaller{
+		pc:     pc,
+		readCh: make(chan *api.Signal),
+	}
+
+	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			return
+		}
+
+		trickle, err := json.Marshal(candidate.ToJSON())
+		if err != nil {
+			return
+		}
+
+		s.readCh <- &api.Signal{Payload: &api.Signal_Trickle{Trickle: string(trickle)}}
+	})
+
+	return s
+}
+
 func (s *Signaller) ReadSignal() (*anypb.Any, error) {
 	signal, ok := <-s.readCh
 	if !ok {
@@ -66,35 +88,15 @@ func (s *Signaller) WriteSignal(any *anypb.Any) error {
 	return nil
 }
 
-func Negotiate(pc *webrtc.PeerConnection) *Signaller {
-	s := &Signaller{
-		pc:     pc,
-		readCh: make(chan *api.Signal),
+func (s *Signaller) Renegotiate() {
+	offer, err := s.pc.CreateOffer(nil)
+	if err != nil {
+		return
 	}
 
-	pc.OnNegotiationNeeded(func() {
-		offer, err := pc.CreateOffer(nil)
-		if err != nil {
-			return
-		}
+	if err := s.pc.SetLocalDescription(offer); err != nil {
+		return
+	}
 
-		if err := pc.SetLocalDescription(offer); err != nil {
-			return
-		}
-
-		s.readCh <- &api.Signal{Payload: &api.Signal_OfferSdp{OfferSdp: offer.SDP}}
-	})
-	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		if candidate == nil {
-			return
-		}
-
-		trickle, err := json.Marshal(candidate.ToJSON())
-		if err != nil {
-			return
-		}
-
-		s.readCh <- &api.Signal{Payload: &api.Signal_Trickle{Trickle: string(trickle)}}
-	})
-	return s
+	s.readCh <- &api.Signal{Payload: &api.Signal_OfferSdp{OfferSdp: offer.SDP}}
 }
